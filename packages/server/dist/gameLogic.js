@@ -2,9 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createDeck = createDeck;
 exports.shuffleDeck = shuffleDeck;
-exports.calculatePoints = calculatePoints;
+exports.sumPoints = sumPoints;
 exports.isValidMeld = isValidMeld;
 exports.sortMeld = sortMeld;
+exports.findAllPossibleMelds = findAllPossibleMelds;
+exports.findMinPoints = findMinPoints;
+exports.calculatePoints = calculatePoints;
 const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 function createDeck() {
@@ -34,7 +37,7 @@ function shuffleDeck(deck) {
     }
     return newDeck;
 }
-function calculatePoints(hand) {
+function sumPoints(hand) {
     return hand.reduce((total, card) => total + card.value, 0);
 }
 // Utility to get numerical rank for straight checks
@@ -76,4 +79,87 @@ function sortMeld(cards) {
             return rankDiff;
         return a.suit.localeCompare(b.suit);
     });
+}
+function getCombinations(array, size) {
+    const result = [];
+    function combine(start, combo) {
+        if (combo.length === size) {
+            result.push([...combo]);
+            return;
+        }
+        for (let i = start; i < array.length; i++) {
+            combo.push(array[i]);
+            combine(i + 1, combo);
+            combo.pop();
+        }
+    }
+    combine(0, []);
+    return result;
+}
+function findAllPossibleMelds(hand) {
+    const melds = [];
+    // 1. Sets (3 or 4 of a kind)
+    const byRank = {};
+    for (const card of hand) {
+        if (!byRank[card.rank])
+            byRank[card.rank] = [];
+        byRank[card.rank].push(card);
+    }
+    for (const rank in byRank) {
+        const cards = byRank[rank];
+        if (cards.length >= 3) {
+            melds.push(...getCombinations(cards, 3));
+            if (cards.length === 4) {
+                melds.push([...cards]);
+            }
+        }
+    }
+    // 2. Runs (Straight Flushes)
+    const bySuit = {};
+    for (const card of hand) {
+        if (!bySuit[card.suit])
+            bySuit[card.suit] = [];
+        bySuit[card.suit].push(card);
+    }
+    for (const suit in bySuit) {
+        const cards = bySuit[suit];
+        cards.sort((a, b) => getRankNum(a.rank) - getRankNum(b.rank));
+        for (let i = 0; i < cards.length; i++) {
+            for (let j = i + 2; j < cards.length; j++) {
+                const sub = cards.slice(i, j + 1);
+                if (isValidMeld(sub)) {
+                    melds.push(sub);
+                }
+            }
+        }
+    }
+    return melds;
+}
+function findMinPoints(hand) {
+    const possibleMelds = findAllPossibleMelds(hand);
+    let minPoints = sumPoints(hand);
+    for (const meld of possibleMelds) {
+        const remainingHand = [...hand];
+        let canRemove = true;
+        for (const card of meld) {
+            const idx = remainingHand.findIndex(c => c.id === card.id);
+            if (idx !== -1) {
+                remainingHand.splice(idx, 1);
+            }
+            else {
+                canRemove = false;
+                break;
+            }
+        }
+        if (canRemove) {
+            const points = findMinPoints(remainingHand);
+            if (points < minPoints) {
+                minPoints = points;
+            }
+        }
+    }
+    return minPoints;
+}
+function calculatePoints(hand) {
+    return findMinPoints(hand);
 }

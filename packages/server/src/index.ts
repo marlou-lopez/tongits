@@ -94,19 +94,33 @@ function endRound(winnerId: string, reason: string) {
 }
 
 function evaluateFight() {
-  // End of deck or someone called fight.
-  // We need to compare points. Players without 'hasBahay' are automatically Burned (max points).
+  const isFightChallenge = gameState.phase === 'fight_challenge';
+  const callerId = gameState.fightCallerId;
+  const responses = gameState.fightResponses || {};
+
   let lowestPoints = Infinity;
   let winnerId = '';
   let burnedCount = 0;
+  
+  // Track eligible players for tie-breaking
+  const eligiblePlayers: { id: string, points: number }[] = [];
 
   gameState.players.forEach(p => {
     let pPoints = calculatePoints(p.hand);
     
-    // Check Burned rule
-    if (!p.hasBahay) {
+    // In a fight challenge, folded players get max points
+    if (isFightChallenge && p.id !== callerId && responses[p.id] === 'fold') {
+      pPoints = 999;
+      burnedCount++;
+    } 
+    // Standard burn rule
+    else if (!p.hasBahay) {
       pPoints = 999; // Burned!
       burnedCount++;
+    }
+
+    if (pPoints < 999) {
+      eligiblePlayers.push({ id: p.id, points: pPoints });
     }
 
     if (pPoints < lowestPoints) {
@@ -116,13 +130,30 @@ function evaluateFight() {
   });
 
   if (burnedCount === gameState.players.length) {
-    // Everyone burned? Host wins by default or it's a draw. Let's give it to host for simplicity.
     winnerId = gameState.players.find(p => p.isHost)?.id || gameState.players[0].id;
     endRound(winnerId, "Everyone was Burned! Host wins by default.");
-  } else {
-    const winner = gameState.players.find(p => p.id === winnerId);
-    endRound(winnerId, `${winner?.name} won with ${lowestPoints} points!`);
+    return;
   }
+
+  // Handle ties in fight challenge
+  if (isFightChallenge && callerId) {
+    const tiedPlayers = eligiblePlayers.filter(p => p.points === lowestPoints);
+    if (tiedPlayers.length > 1) {
+      // Tie breaker: caller loses to challengers. Between challengers, latest in turn order wins.
+      const callerIndex = gameState.players.findIndex(p => p.id === callerId);
+      const getDistance = (id: string) => {
+        if (id === callerId) return 0;
+        const idx = gameState.players.findIndex(p => p.id === id);
+        return (idx - callerIndex + gameState.players.length) % gameState.players.length;
+      };
+
+      tiedPlayers.sort((a, b) => getDistance(b.id) - getDistance(a.id));
+      winnerId = tiedPlayers[0].id;
+    }
+  }
+
+  const winner = gameState.players.find(p => p.id === winnerId);
+  endRound(winnerId, `${winner?.name} won with ${lowestPoints} points!`);
 }
 
 function nextTurn() {
@@ -237,6 +268,8 @@ io.on('connection', (socket) => {
     gameState.dumpPile = [];
     gameState.winnerId = null;
     gameState.winReason = null;
+    gameState.fightCallerId = null;
+    gameState.fightResponses = {};
     turnHistory = [];
 
     // Deal cards (Host gets 13, others 12)
@@ -405,8 +438,47 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.emit('gameMessage', `${player.name} called a FIGHT! Evaluating hands...`);
-    evaluateFight();
+    io.emit('gameMessage', `${player.name} called a FIGHT!`);
+    
+    gameState.phase = 'fight_challenge';
+    gameState.fightCallerId = player.id;
+    gameState.fightResponses = {};
+
+    // Auto-fold players without bahay
+    gameState.players.forEach(p => {
+      if (p.id !== player.id) {
+        if (!p.hasBahay) {
+          gameState.fightResponses![p.id] = 'fold';
+        }
+      }
+    });
+
+    // If everyone else auto-folded, evaluate immediately
+    const totalOpponents = gameState.players.length - 1;
+    const respondedCount = Object.keys(gameState.fightResponses).length;
+    if (respondedCount === totalOpponents) {
+      evaluateFight();
+    } else {
+      broadcastGameState();
+    }
+  });
+
+  socket.on('respondToFight', (response: 'fold' | 'challenge') => {
+    const player = gameState.players.find(p => p.socketId === socket.id);
+    if (!player || gameState.phase !== 'fight_challenge' || !gameState.fightResponses) return;
+    if (player.id === gameState.fightCallerId) return; // Caller cannot respond
+    if (gameState.fightResponses[player.id]) return; // Already responded
+
+    gameState.fightResponses[player.id] = response;
+
+    const totalOpponents = gameState.players.length - 1;
+    const respondedCount = Object.keys(gameState.fightResponses).length;
+
+    if (respondedCount === totalOpponents) {
+      evaluateFight();
+    } else {
+      broadcastGameState();
+    }
   });
 
   socket.on('restartGame', () => {
@@ -420,6 +492,8 @@ io.on('connection', (socket) => {
     gameState.winReason = null;
     gameState.dumpPile = [];
     gameState.hasDrawnThisTurn = false;
+    gameState.fightCallerId = null;
+    gameState.fightResponses = {};
     turnHistory = [];
     
     // Reset hands but keep wins intact

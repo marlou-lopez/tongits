@@ -27,7 +27,7 @@ export interface Player {
 export interface GameState {
   players: Player[];
   status: 'waiting' | 'playing' | 'finished';
-  phase: 'waiting_for_players' | 'dealing' | 'player_turn' | 'round_end';
+  phase: 'waiting_for_players' | 'dealing' | 'player_turn' | 'fight_challenge' | 'round_end';
   deckCount: number;
   dumpPile: Card[];
   turnId: string | null;
@@ -35,6 +35,8 @@ export interface GameState {
   winReason: string | null;
   hasDrawnThisTurn: boolean;
   canUndo?: boolean;
+  fightCallerId?: string | null;
+  fightResponses?: Record<string, 'fold' | 'challenge'>;
 }
 
 export interface ServerToClientEvents {
@@ -59,6 +61,6 @@ export interface ClientToServerEvents {
   discardCard: (cardIndex: number) => void;
   callFight: () => void;
   restartGame: () => void;
-  fold: () => void;
   undo: () => void;
+  respondToFight: (response: 'fold' | 'challenge') => void;
 }

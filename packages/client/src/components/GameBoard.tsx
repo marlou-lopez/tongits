@@ -108,6 +108,10 @@ export function GameBoard({ gameState, socket, playerId }: Props) {
     socket.emit('startGame');
   };
 
+  const handleRespondToFight = (response: 'fold' | 'challenge') => {
+    socket.emit('respondToFight', response);
+  };
+
   if (!currentPlayer) return <div>Loading...</div>;
 
   const handleBackgroundClick = () => {
@@ -128,8 +132,41 @@ export function GameBoard({ gameState, socket, playerId }: Props) {
       </div>
 
       {/* Game Arena - Only visible when playing */}
-      {(gameState.phase === 'player_turn' || gameState.phase === 'dealing') && (
+      {(gameState.phase === 'player_turn' || gameState.phase === 'dealing' || gameState.phase === 'fight_challenge') && (
         <div className="flex-1 flex flex-col justify-between bg-white rounded-xl p-2 sm:p-4 md:p-8 border border-gray-200 shadow-xl relative min-h-[600px] lg:min-h-[700px] overflow-hidden">
+          {/* Fight Challenge Modal Overlay */}
+          {gameState.phase === 'fight_challenge' && (
+            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
+              <div className="bg-white border-2 border-orange-500 rounded-2xl shadow-[0_0_50px_rgba(249,115,22,0.3)] p-8 max-w-2xl w-full text-center">
+                <h2 className="text-3xl md:text-5xl font-black text-orange-600 mb-6 drop-shadow-sm">FIGHT IN PROGRESS!</h2>
+                
+                {gameState.fightCallerId === currentPlayer.id ? (
+                  <p className="text-xl md:text-2xl text-gray-800 animate-pulse font-bold">Waiting for opponents to respond...</p>
+                ) : gameState.fightResponses?.[currentPlayer.id] ? (
+                  <div className="flex flex-col items-center">
+                    <p className="text-xl md:text-2xl text-gray-800 mb-4 font-bold">
+                      You chose to {gameState.fightResponses[currentPlayer.id].toUpperCase()}.
+                    </p>
+                    <p className="text-lg text-gray-500 animate-pulse">Waiting for other players...</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <p className="text-xl md:text-2xl text-gray-800 mb-8 font-bold leading-relaxed">
+                      <span className="text-accent-600 text-3xl uppercase tracking-wider">{gameState.players.find(p => p.id === gameState.fightCallerId)?.name}</span><br/>called a FIGHT!
+                    </p>
+                    <div className="flex gap-4 md:gap-8 w-full justify-center">
+                      <button onClick={() => handleRespondToFight('challenge')} className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 md:px-10 md:py-5 rounded-xl font-black text-lg md:text-2xl shadow-lg transition-transform hover:-translate-y-1 flex-1">
+                        CHALLENGE
+                      </button>
+                      <button onClick={() => handleRespondToFight('fold')} className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 md:px-10 md:py-5 rounded-xl font-black text-lg md:text-2xl shadow-lg transition-transform hover:-translate-y-1 flex-1">
+                        FOLD
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         
         {/* Opponents Area */}
         <div className="flex justify-between min-h-[12rem] md:min-h-[16rem] h-auto mb-4">
@@ -291,6 +328,8 @@ export function GameBoard({ gameState, socket, playerId }: Props) {
         </div>
       )}
 
+
+
       {gameState.phase === 'round_end' && (
         <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-xl p-8 border border-gray-200 shadow-xl min-h-[50vh] text-center">
           {gameState.winnerId === currentPlayer.id ? (
@@ -298,7 +337,24 @@ export function GameBoard({ gameState, socket, playerId }: Props) {
           ) : (
             <h2 className="text-4xl md:text-6xl font-black text-accent-600 mb-4 md:mb-6 drop-shadow-sm">Round Ended!</h2>
           )}
-          <p className="text-lg md:text-2xl text-gray-800 mb-8 md:mb-12 max-w-2xl leading-relaxed bg-[#F8F9FA] p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm">{gameState.winReason}</p>
+          <p className="text-lg md:text-2xl text-gray-800 mb-6 md:mb-8 max-w-2xl leading-relaxed bg-[#F8F9FA] p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm">{gameState.winReason}</p>
+          
+          <div className="w-full max-w-md bg-white rounded-2xl border border-gray-200 shadow-md p-6 mb-8">
+            <h3 className="text-xl font-black text-gray-800 mb-4 uppercase tracking-wide border-b border-gray-100 pb-2 text-left">Final Points</h3>
+            <ul className="space-y-3">
+              {gameState.players.slice().sort((a, b) => a.points - b.points).map((p) => (
+                <li key={p.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg">
+                  <span className={`font-bold text-lg ${p.id === gameState.winnerId ? 'text-accent-600' : 'text-gray-700'}`}>
+                    {p.name} {p.id === gameState.winnerId && '👑'}
+                  </span>
+                  <span className="font-mono font-black text-xl text-gray-800 bg-white px-3 py-1 rounded-md shadow-sm border border-gray-200">
+                    {p.points}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
           {currentPlayer.isHost ? (
             <button onClick={handleStartGame} className="bg-accent-500 hover:bg-accent-600 text-white px-6 py-3 md:px-10 md:py-5 rounded-xl font-bold text-xl md:text-2xl shadow-md transition-all hover:-translate-y-1">
               Start Next Round
